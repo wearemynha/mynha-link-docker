@@ -1,77 +1,143 @@
 #!/bin/sh
 
-# Exit on non defined variables and on non zero exit codes
 set -eu
 
-echo 'Building the container'
+# Prevent Git Bash on Windows from rewriting Linux container paths.
+export MSYS_NO_PATHCONV=1
 
-docker build ./ -t alpine-apache-php-ci:latest
+IMAGE_NAME="${IMAGE_NAME:-mynha-link-docker-smoke:local}"
+TEST_PREFIX="mynha-link-docker-smoke-$$"
+NETWORK_NAME="${TEST_PREFIX}-network"
+APP_CONTAINER="${TEST_PREFIX}-app"
+POSTGRES_CONTAINER="${TEST_PREFIX}-postgres"
+APP_VOLUME="${TEST_PREFIX}-app-data"
+POSTGRES_VOLUME="${TEST_PREFIX}-postgres-data"
+POSTGRES_DB="linkstack_test"
+POSTGRES_USER="linkstack_test"
+POSTGRES_PASSWORD="smoke-test-password"
 
-NET="${DOCKER_NETWORK:-alpine-apache-php-autotest}"
+cleanup() {
+    echo "Cleaning up smoke-test resources"
+    docker rm --force "${APP_CONTAINER}" "${POSTGRES_CONTAINER}" >/dev/null 2>&1 || true
+    docker volume rm "${APP_VOLUME}" "${POSTGRES_VOLUME}" >/dev/null 2>&1 || true
+    docker network rm "${NETWORK_NAME}" >/dev/null 2>&1 || true
+}
 
-# use failure to switch on create
-docker network inspect ${NET} 1>/dev/null 2> /dev/null || docker network create ${NET}
+wait_for_postgres() {
+    attempts=0
+    until docker exec "${POSTGRES_CONTAINER}" pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" >/dev/null 2>&1; do
+        attempts=$((attempts + 1))
+        if [ "${attempts}" -ge 30 ]; then
+            docker logs "${POSTGRES_CONTAINER}"
+            echo "PostgreSQL did not become ready" >&2
+            exit 1
+        fi
+        sleep 2
+    done
+}
 
-echo 'Preparing test folder'
+wait_for_application() {
+    attempts=0
+    until [ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${APP_CONTAINER}")" = "healthy" ]; do
+        attempts=$((attempts + 1))
+        if [ "${attempts}" -ge 45 ]; then
+            docker logs "${APP_CONTAINER}"
+            echo "Mynha Link did not become healthy" >&2
+            exit 1
+        fi
+        sleep 2
+    done
+}
 
-TMP_DIR="$(mktemp -d --suffix alpine-apache-php)"
+start_application() {
+    docker run --detach \
+        --name "${APP_CONTAINER}" \
+        --network "${NETWORK_NAME}" \
+        --volume "${APP_VOLUME}:/htdocs" \
+        --env APP_ENV=production \
+        --env APP_DEBUG=false \
+        --env APP_URL=http://localhost \
+        --env LOG_CHANNEL=stderr \
+        --env DB_CONNECTION=pgsql \
+        --env DB_HOST="${POSTGRES_CONTAINER}" \
+        --env DB_PORT=5432 \
+        --env DB_DATABASE="${POSTGRES_DB}" \
+        --env DB_USERNAME="${POSTGRES_USER}" \
+        --env DB_PASSWORD="${POSTGRES_PASSWORD}" \
+        --env DB_SSLMODE=disable \
+        --env MAIL_FROM_ADDRESS=no-reply@example.com \
+        "${IMAGE_NAME}" >/dev/null
+}
 
-printf "<?php \n\
-    echo 'PHP: ' . PHP_MAJOR_VERSION . PHP_EOL;\n\
-    echo 'Admin: ' . \$_SERVER['SERVER_ADMIN'] . PHP_EOL;\n\
-    echo 'Host: ' . \$_SERVER['SERVER_NAME'] . PHP_EOL;\n\
-    echo 'Memory-limit: ' . ini_get('memory_limit') . PHP_EOL;\n\
-    echo 'Timezone: ' . ini_get('date.timezone') . PHP_EOL;\n\
-    " > "${TMP_DIR}/index.php"
+trap cleanup EXIT INT TERM
 
-chmod 777 "${TMP_DIR}"
-chmod 666 "${TMP_DIR}/index.php"
+echo "Building ${IMAGE_NAME}"
+docker build --tag "${IMAGE_NAME}" .
 
-echo 'Running test containers'
+docker network create "${NETWORK_NAME}" >/dev/null
+docker volume create "${APP_VOLUME}" >/dev/null
+docker volume create "${POSTGRES_VOLUME}" >/dev/null
 
-# stop if exists or silently exit
-docker stop alpine-apache-php-test 1>/dev/null 2> /dev/null || echo '' >/dev/null
+echo "Starting PostgreSQL"
+docker run --detach \
+    --name "${POSTGRES_CONTAINER}" \
+    --network "${NETWORK_NAME}" \
+    --volume "${POSTGRES_VOLUME}:/var/lib/postgresql/data" \
+    --env POSTGRES_DB="${POSTGRES_DB}" \
+    --env POSTGRES_USER="${POSTGRES_USER}" \
+    --env POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
+    postgres:17-alpine >/dev/null
+wait_for_postgres
 
-docker run --rm --detach \
-    --name alpine-apache-php-test \
-    --network ${NET} \
-    --volume ${TMP_DIR}:/htdocs \
-    --env HTTP_SERVER_NAME="www.example.xyz" \
-    --env HTTPS_SERVER_NAME="www.example.xyz" \
-    --env SERVER_ADMIN="admin@example.xyz" \
-    --env TZ="Europe/Paris" \
-    --env PHP_MEMORY_LIMIT="512M" \
-    alpine-apache-php-ci:latest 1>/dev/null
+echo "Starting Mynha Link"
+start_application
+wait_for_application
 
+echo "Checking runtime and installer"
+docker exec "${APP_CONTAINER}" php -m | grep -q '^pdo_pgsql$'
+docker exec "${APP_CONTAINER}" php -m | grep -q '^imagick$'
+docker exec "${APP_CONTAINER}" test -f /htdocs/build/manifest.json
+docker exec "${APP_CONTAINER}" test ! -d /htdocs/node_modules
+docker exec "${APP_CONTAINER}" test ! -d /htdocs/tests
+docker exec "${APP_CONTAINER}" test ! -e /htdocs/vendor/bin/phpunit
+docker exec "${APP_CONTAINER}" curl --fail --silent --show-error http://localhost/ | grep -q 'language-form'
+if docker exec \
+    --env DB_HOST=127.0.0.1 \
+    --env DB_PORT=1 \
+    "${APP_CONTAINER}" docker-healthcheck.sh >/dev/null 2>&1; then
+    echo "Healthcheck accepted an unavailable database" >&2
+    exit 1
+fi
 
-# stop if exists or silently exit
-docker stop alpine-apache-php-test-normal 1>/dev/null 2> /dev/null || echo '' >/dev/null
+echo "Preparing persistence checks"
+ENV_HASH_BEFORE="$(docker exec "${APP_CONTAINER}" sha256sum /htdocs/.env | cut -d ' ' -f 1)"
+docker exec --user apache:apache "${APP_CONTAINER}" sh -c "printf '%s\n' 'storage-ok' > /htdocs/storage/persistence-marker"
+docker exec --user apache:apache "${APP_CONTAINER}" sh -c "mkdir -p /htdocs/themes/custom-smoke && printf '%s\n' 'theme-ok' > /htdocs/themes/custom-smoke/marker"
+docker exec --user apache:apache "${APP_CONTAINER}" sh -c "printf '%s\n' '<?php return [];' > /htdocs/config/advanced-config.php"
+docker exec --user apache:apache "${APP_CONTAINER}" test -w /htdocs/storage/persistence-marker
+docker exec --user apache:apache "${APP_CONTAINER}" test -w /htdocs/themes/custom-smoke/marker
+docker exec --user apache:apache "${APP_CONTAINER}" test -w /htdocs/config/advanced-config.php
+docker exec "${APP_CONTAINER}" sh -c "printf '%s\n' 'remove-me' > /htdocs/obsolete-code-file"
+docker exec "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "CREATE TABLE smoke_test (value text NOT NULL); INSERT INTO smoke_test VALUES ('database-ok');" >/dev/null
 
-docker run --rm --detach \
-    --name alpine-apache-php-test-normal \
-    --network ${NET} \
-    --volume ${TMP_DIR}:/htdocs \
-    alpine-apache-php-ci:latest 1>/dev/null
+echo "Recreating the application container"
+docker rm --force "${APP_CONTAINER}" >/dev/null
+start_application
+wait_for_application
 
-echo ''
-echo 'Running custom tests'
+ENV_HASH_AFTER="$(docker exec "${APP_CONTAINER}" sha256sum /htdocs/.env | cut -d ' ' -f 1)"
+[ "${ENV_HASH_BEFORE}" = "${ENV_HASH_AFTER}" ]
+docker exec "${APP_CONTAINER}" grep -q '^storage-ok$' /htdocs/storage/persistence-marker
+docker exec "${APP_CONTAINER}" grep -q '^theme-ok$' /htdocs/themes/custom-smoke/marker
+docker exec "${APP_CONTAINER}" test -f /htdocs/config/advanced-config.php
+docker exec --user apache:apache "${APP_CONTAINER}" test -w /htdocs/storage/persistence-marker
+docker exec --user apache:apache "${APP_CONTAINER}" test -w /htdocs/themes/custom-smoke/marker
+docker exec --user apache:apache "${APP_CONTAINER}" test -w /htdocs/config/advanced-config.php
+docker exec "${APP_CONTAINER}" stat -c '%U:%G' /htdocs/storage/persistence-marker | grep -q '^apache:apache$'
+docker exec "${APP_CONTAINER}" stat -c '%U:%G' /htdocs/themes/custom-smoke/marker | grep -q '^apache:apache$'
+docker exec "${APP_CONTAINER}" stat -c '%U:%G' /htdocs/config/advanced-config.php | grep -q '^apache:apache$'
+docker exec "${APP_CONTAINER}" test ! -e /htdocs/obsolete-code-file
+docker exec "${POSTGRES_CONTAINER}" psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -tAc "SELECT value FROM smoke_test LIMIT 1" | grep -q '^database-ok$'
+docker exec "${APP_CONTAINER}" curl --fail --silent --show-error http://localhost/ | grep -q 'language-form'
 
-docker run --rm --network ${NET} curlimages/curl:latest -s -k https://alpine-apache-php-test -H 'Host: www.example.xyz'
-docker run --rm --network ${NET} curlimages/curl:latest -s http://alpine-apache-php-test
-docker run --rm --network ${NET} curlimages/curl:latest -s -k https://alpine-apache-php-test
-
-echo ''
-echo 'Running normal tests'
-
-docker run --rm --network ${NET} curlimages/curl:latest -s -k https://alpine-apache-php-test-normal -H 'Host: www.example.xyz'
-docker run --rm --network ${NET} curlimages/curl:latest -s http://alpine-apache-php-test-normal
-docker run --rm --network ${NET} curlimages/curl:latest -s -k https://alpine-apache-php-test-normal
-
-echo ''
-echo 'Cleaning up'
-docker stop alpine-apache-php-test 1>/dev/null
-docker stop alpine-apache-php-test-normal 1>/dev/null
-docker network rm ${NET} 1>/dev/null
-
-rm "${TMP_DIR}/index.php"
-rmdir "${TMP_DIR}"
+echo "Smoke test passed"
