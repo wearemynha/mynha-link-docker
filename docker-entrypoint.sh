@@ -9,7 +9,6 @@ RUNTIME_PHP_CONFIG="/etc/php83/conf.d/99-linkstack-runtime.ini"
 
 export SERVER_ADMIN="${SERVER_ADMIN:-admin@example.com}"
 export HTTP_SERVER_NAME="${HTTP_SERVER_NAME:-localhost}"
-export HTTPS_SERVER_NAME="${HTTPS_SERVER_NAME:-localhost}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
 export TZ="${TZ:-UTC}"
 export PHP_MEMORY_LIMIT="${PHP_MEMORY_LIMIT:-256M}"
@@ -29,7 +28,8 @@ sync_application() {
     if [ ! -f "${APP_ROOT}/artisan" ]; then
         echo "Initializing the application volume"
         cp -a "${APP_SOURCE}/." "${APP_ROOT}/"
-        touch "${APP_ROOT}/INSTALLING"
+        mkdir -p "${APP_ROOT}/storage/app"
+        touch "${APP_ROOT}/storage/app/INSTALLING"
         return
     fi
 
@@ -62,6 +62,23 @@ sync_application() {
     fi
 }
 
+migrate_installer_markers() {
+    mkdir -p "${APP_ROOT}/storage/app"
+
+    for marker in INSTALLING INSTALLERLOCK; do
+        legacy_marker="${APP_ROOT}/${marker}"
+        current_marker="${APP_ROOT}/storage/app/${marker}"
+
+        if [ -f "${legacy_marker}" ]; then
+            if [ -f "${current_marker}" ]; then
+                rm -f "${legacy_marker}"
+            else
+                mv "${legacy_marker}" "${current_marker}"
+            fi
+        fi
+    done
+}
+
 prepare_writable_paths() {
     mkdir -p \
         "${APP_ROOT}/assets/dashboard-themes" \
@@ -70,14 +87,27 @@ prepare_writable_paths() {
         "${APP_ROOT}/assets/linkstack/images" \
         "${APP_ROOT}/backups" \
         "${APP_ROOT}/bootstrap/cache" \
+        "${APP_ROOT}/storage/app" \
         "${APP_ROOT}/storage/app/public" \
         "${APP_ROOT}/storage/framework/cache/data" \
         "${APP_ROOT}/storage/framework/sessions" \
         "${APP_ROOT}/storage/framework/views" \
-        "${APP_ROOT}/storage/logs" \
-        "${APP_ROOT}/themes"
+        "${APP_ROOT}/storage/logs"
 
-    chown apache:apache "${APP_ROOT}" "${APP_ROOT}/config"
+    if [ ! -f "${APP_ROOT}/config/advanced-config.php" ]; then
+        if [ ! -f "${APP_ROOT}/storage/templates/advanced-config.php" ]; then
+            echo "Advanced configuration template not found" >&2
+            exit 1
+        fi
+
+        cp \
+            "${APP_ROOT}/storage/templates/advanced-config.php" \
+            "${APP_ROOT}/config/advanced-config.php"
+    fi
+
+    chown root:root "${APP_ROOT}" "${APP_ROOT}/config"
+    chmod 0755 "${APP_ROOT}" "${APP_ROOT}/config"
+
     chown -R apache:apache \
         "${APP_ROOT}/assets/dashboard-themes" \
         "${APP_ROOT}/assets/favicon/icons" \
@@ -85,8 +115,14 @@ prepare_writable_paths() {
         "${APP_ROOT}/assets/linkstack/images" \
         "${APP_ROOT}/backups" \
         "${APP_ROOT}/bootstrap/cache" \
-        "${APP_ROOT}/storage" \
-        "${APP_ROOT}/themes"
+        "${APP_ROOT}/storage"
+
+    chown apache:apache "${APP_ROOT}/config/advanced-config.php"
+    chmod 0600 "${APP_ROOT}/config/advanced-config.php"
+
+    chown -R root:root "${APP_ROOT}/themes"
+    find "${APP_ROOT}/themes" -type d -exec chmod 0755 {} +
+    find "${APP_ROOT}/themes" -type f -exec chmod 0644 {} +
 }
 
 prepare_environment() {
@@ -106,8 +142,9 @@ prepare_environment() {
     fi
 }
 
-clear_stale_caches() {
-    su-exec "${RUN_AS}" php artisan optimize:clear --no-interaction
+synchronize_runtime_environment() {
+    process_keys="$(env | cut -d '=' -f 1 | tr '\n' ',')"
+    su-exec "${RUN_AS}" php artisan runtime:sync-environment --cache --clear-missing --process-keys="${process_keys}" --no-interaction
 }
 
 print_startup_summary() {
@@ -118,7 +155,6 @@ print_startup_summary() {
 
     echo "Mynha Link ${version}"
     echo "Apache HTTP host: ${HTTP_SERVER_NAME}"
-    echo "Apache HTTPS host: ${HTTPS_SERVER_NAME}"
     echo "PHP memory limit: ${PHP_MEMORY_LIMIT}"
     echo "Maximum upload size: ${UPLOAD_MAX_FILESIZE}"
     echo "Timezone: ${TZ}"
@@ -126,10 +162,11 @@ print_startup_summary() {
 
 write_runtime_php_config
 sync_application
+migrate_installer_markers
 prepare_writable_paths
 cd "${APP_ROOT}"
 prepare_environment
-clear_stale_caches
+synchronize_runtime_environment
 print_startup_summary
 
 if [ "${1:-}" = "httpd" ]; then

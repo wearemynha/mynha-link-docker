@@ -79,7 +79,6 @@ LABEL org.opencontainers.image.title="Mynha Link" \
 
 RUN apk add --no-cache \
         apache2 \
-        apache2-ssl \
         ca-certificates \
         curl \
         php83 \
@@ -114,20 +113,17 @@ RUN apk add --no-cache \
         tzdata \
     && ln -sf /usr/bin/php83 /usr/local/bin/php \
     && mkdir -p /htdocs /opt/linkstack /run/apache2 \
-    && chown apache:apache /htdocs /run/apache2
+    && chown root:root /htdocs /opt/linkstack \
+    && chown apache:apache /run/apache2
 
 COPY --from=backend-builder /app /opt/linkstack
 COPY configs/apache2/httpd.conf /etc/apache2/httpd.conf
-COPY configs/apache2/ssl.conf /etc/apache2/conf.d/ssl.conf
 COPY configs/php/php.ini /etc/php83/conf.d/40-custom.ini
-
-RUN chown apache:apache /etc/ssl/apache2/server.pem /etc/ssl/apache2/server.key \
-    && chmod 0640 /etc/ssl/apache2/server.key
 
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --chmod=0755 docker-healthcheck.sh /usr/local/bin/docker-healthcheck.sh
 
-EXPOSE 80 443
+EXPOSE 80
 
 HEALTHCHECK --interval=30s --timeout=8s --start-period=30s --retries=3 \
     CMD ["docker-healthcheck.sh"]
