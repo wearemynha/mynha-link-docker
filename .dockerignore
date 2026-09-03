@@ -4,6 +4,9 @@
 .env
 *.log
 
+# Placeholder submodules; they are not consumed by the image yet.
+sources/
+
 linkstack/.git
 linkstack/.github
 linkstack/.idea

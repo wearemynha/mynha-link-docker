@@ -1,0 +1,8 @@
+[submodule "sources/mynha-link"]
+	path = sources/mynha-link
+	url = https://github.com/wearemynha/mynha-link.git
+	branch = main
+[submodule "sources/mynha-link-themes"]
+	path = sources/mynha-link-themes
+	url = https://github.com/wearemynha/mynha-link-themes.git
+	branch = main
