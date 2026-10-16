@@ -1,22 +1,19 @@
 .git
+**/.git
 .github
+**/.github
 .idea
+**/.idea
 .env
 *.log
 
-# Placeholder submodules; they are not consumed by the image yet.
-sources/
-
-linkstack/.git
-linkstack/.github
-linkstack/.idea
-linkstack/.env
-linkstack/.env.*
-!linkstack/.env.example
-linkstack/node_modules
-linkstack/vendor
-linkstack/build
-linkstack/hot
-linkstack/tests
-linkstack/.phpunit.result.cache
-
+# Keep local secrets, dependencies, and generated files out of the build.
+sources/mynha-link/.env
+sources/mynha-link/.env.*
+!sources/mynha-link/.env.example
+sources/mynha-link/node_modules
+sources/mynha-link/vendor
+sources/mynha-link/build
+sources/mynha-link/hot
+sources/mynha-link/tests
+sources/mynha-link/.phpunit.result.cache

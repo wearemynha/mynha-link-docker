@@ -1,140 +1,141 @@
 # Mynha Link Docker
 
-Imagem Docker do **Mynha Link**, baseada no fork do LinkStack mantido pela Mynha.
+Docker image for **Mynha Link**, the LinkStack fork maintained by Mynha.
 
-A imagem contém Apache, PHP 8.3, as dependências PHP de produção e os arquivos compilados do frontend. O ambiente definido em `docker-compose.yml` utiliza PostgreSQL 17.
+The image includes Apache, PHP 8.3, production PHP dependencies, and compiled frontend assets. The environment defined in `docker-compose.yml` uses PostgreSQL 17.
 
-## Requisitos
+## Getting the source
 
-- Docker com o plugin Docker Compose;
-- código do `mynha-link` disponível na pasta `linkstack/` deste repositório.
+You need Git, Docker, and the Docker Compose plugin to build and run this project locally.
 
-Enquanto os submódulos permanecerem como placeholders, o código usado pelo build pode ser clonado diretamente:
+The repository contains two submodules:
 
-```sh
-git clone https://github.com/wearemynha/mynha-link.git linkstack
-```
+- `sources/mynha-link`: application source code;
+- `sources/mynha-link-themes`: Mynha themes, stored under its `themes/` directory.
 
-A pasta é ignorada pelo Git deste repositório. A vinculação definitiva do build aos submódulos será feita em uma etapa separada.
-
-## Submódulos (placeholders)
-
-O repositório já reserva os seguintes caminhos:
-
-- `sources/mynha-link`: código da aplicação;
-- `sources/mynha-link-themes`: repositório de temas, cuja estrutura de temas está em `themes/`.
-
-Os dois submódulos acompanham a branch `main` como referência, mas o repositório Docker sempre registra commits exatos. Eles ainda não são consumidos pelo `Dockerfile` e estão excluídos do contexto de build por `.dockerignore`; portanto, não alteram a imagem atual.
-
-Em um clone novo, inicialize os placeholders com:
+Initialize them after cloning:
 
 ```sh
 git submodule update --init --recursive
 ```
 
-Também é possível clonar tudo de uma vez com `git clone --recurse-submodules`. A ativação ocorrerá somente depois que as versões desejadas da aplicação e dos temas estiverem na `main`: nessa etapa, os ponteiros serão atualizados e o `Dockerfile` passará a usar `sources/mynha-link` e `sources/mynha-link-themes/themes`.
+Alternatively, clone the repository with `git clone --recurse-submodules`. The submodule URLs use SSH, so cloning requires GitHub SSH access. Although `.gitmodules` specifies `main`, normal submodule initialization checks out the exact commits recorded by this repository.
 
-## Execução local
+The Docker build reads the application directly from `sources/mynha-link` and packages the themes from `sources/mynha-link-themes/themes`, together with their license and attribution files. Initializing both submodules is sufficient to prepare the source.
 
-Crie o arquivo local de configuração:
+The build context excludes Git metadata, local application environment files, dependencies, and generated assets. The application's `.env.example` is included for initialization.
+
+After pulling changes to this repository, run `git submodule update --init --recursive` again before building to check out the recorded submodule revisions. Local changes inside either submodule are also used by a local build; release builds should use clean checkouts of the pinned commits.
+
+## Running locally
+
+After preparing the source as described above, create the local configuration file:
 
 ```sh
 cp .env.local.example .env
 ```
 
-No PowerShell, use:
+In PowerShell:
 
 ```powershell
 Copy-Item .env.local.example .env
 ```
 
-Substitua `POSTGRES_PASSWORD` em `.env` por uma senha local e inicie o ambiente:
+Set `POSTGRES_PASSWORD` in `.env` to a local password, then start the environment:
 
 ```sh
 docker compose -f docker-compose.yml -f docker-compose.local.yml up --detach --build
 ```
 
-O Compose base não publica portas no host. O arquivo `docker-compose.local.yml` adiciona exclusivamente o mapeamento `${HTTP_PORT:-8080}:80` necessário para acessar a aplicação pelo navegador local.
+The base Compose file does not publish any host ports. The `docker-compose.local.yml` override adds the `${HTTP_PORT:-8080}:80` mapping for local browser access.
 
-Acesse `http://localhost:8080`. Para acompanhar a inicialização:
+Open `http://localhost:8080`. To follow startup logs:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.local.yml logs --follow linkstack
+docker compose -f docker-compose.yml -f docker-compose.local.yml logs --follow mynha-link
 ```
 
-Para encerrar os containers sem apagar os dados:
+To stop the containers without deleting their data:
 
 ```sh
 docker compose -f docker-compose.yml -f docker-compose.local.yml down
 ```
 
-## Persistência e atualizações
+## Persistence and updates
 
-O Compose mantém dois volumes:
+Compose maintains two volumes:
 
-- `linkstack_data`: `.env`, uploads, backups, configuração avançada e outros dados mutáveis da aplicação;
-- `postgres_data`: banco PostgreSQL.
+- `mynha_link_data`: the application's `.env`, uploads, backups, advanced configuration, and other mutable data;
+- `postgres_data`: the PostgreSQL database.
 
-O código e os temas distribuídos ficam em `/opt/linkstack`, dentro da imagem. A cada inicialização eles são sincronizados com `/htdocs`, preservando os dados mutáveis. A pasta de temas fica somente leitura para o Apache; novos temas devem entrar pelo repositório e pelo processo de build. A sincronização não remove temas já existentes no volume, mesmo quando eles deixam de fazer parte de uma imagem posterior.
+Application code and packaged themes are stored in `/opt/linkstack` inside the image. At startup, they are synchronized to `/htdocs` while preserving mutable data. The themes directory is read-only for Apache; new themes must be supplied through the source and build process. Synchronization does not remove themes already present in the volume, even when they are absent from a later image.
 
-Para aplicar uma nova versão do código:
+To build and apply an updated application image:
 
 ```sh
-docker compose build --pull linkstack
-docker compose up --detach --force-recreate linkstack
+docker compose build --pull mynha-link
+docker compose up --detach --force-recreate mynha-link
 ```
 
-Faça backup dos dois volumes antes de atualizações em produção. Não execute `docker compose down --volumes` em um ambiente que contenha dados que devam ser preservados.
+For local deployments, use `-f docker-compose.yml -f docker-compose.local.yml` with both commands to retain the local port mapping.
 
-## Configuração
+Back up both volumes before production updates. Do not run `docker compose down --volumes` in an environment containing data you need to preserve.
 
-O `.env.example` é o modelo canônico e completo de produção. Para execução local, `.env.local.example` contém somente os valores que precisam sobrescrever os padrões locais seguros definidos no Compose. Em cada ambiente continua existindo um único `.env` real. As principais variáveis são:
+## Configuration
 
-| Variável | Finalidade | Padrão |
+`.env.example` is the full production configuration template. For local use, `.env.local.example` contains only the values needed to override the local defaults in Compose. Each environment uses a single actual `.env` file.
+
+The main settings are:
+
+| Variable | Purpose | Compose default / production example |
 | --- | --- | --- |
-| `APP_URL` | URL pública da aplicação | `https://link.example.com` |
-| `POSTGRES_DB` | Nome do banco | `mynha_link` |
-| `POSTGRES_USER` | Usuário do banco | `mynha_link` |
-| `POSTGRES_PASSWORD` | Senha do banco | sem valor seguro padrão |
-| `DB_SSLMODE` | Modo SSL da conexão PostgreSQL | `disable` |
-| `HTTP_PORT` | Porta HTTP publicada pelo override local | `8080` |
-| `PHP_MEMORY_LIMIT` | Limite de memória do PHP | `256M` |
-| `UPLOAD_MAX_FILESIZE` | Tamanho máximo de um arquivo | `8M` |
-| `POST_MAX_SIZE` | Tamanho máximo da requisição | `16M` |
-| `TZ` | Fuso horário do container | `America/Sao_Paulo` |
+| `APP_URL` | Public application URL | `http://localhost:8080` / `https://link.example.com` |
+| `POSTGRES_DB` | Database name | `mynha_link` |
+| `POSTGRES_USER` | Database user | `mynha_link` |
+| `POSTGRES_PASSWORD` | Database password | Required; no default |
+| `DB_SSLMODE` | PostgreSQL SSL mode | `disable` |
+| `HTTP_PORT` | HTTP port published by the local override | `8080` |
+| `PHP_MEMORY_LIMIT` | PHP memory limit | `256M` |
+| `UPLOAD_MAX_FILESIZE` | Maximum individual upload size | `8M` |
+| `POST_MAX_SIZE` | Maximum request body size | `16M` |
+| `TZ` | Container timezone | `America/Sao_Paulo` |
 
-Os campos de segredo permanecem vazios nos exemplos para que o Compose interrompa a inicialização até que sejam fornecidos pelo ambiente. Em produção, defina uma senha forte, substitua `<version>` por uma tag imutável da imagem, configure `APP_URL` com o domínio público e mantenha `APP_DEBUG=false`. A inicialização é interrompida se `APP_DEBUG=true` for usado com `APP_ENV=production`. O PostgreSQL não é publicado no host pelo Compose.
+Secret fields are empty in the examples so that Compose stops until required values are supplied. In production, set a strong database password, replace `<version>` with an immutable image tag, configure `APP_URL` with your public domain, and keep `APP_DEBUG=false`. Startup is blocked when `APP_DEBUG=true` is combined with `APP_ENV=production`. Compose does not publish PostgreSQL to the host.
 
-O arquivo `.env` deste repositório é a fonte de configuração do ambiente Docker. O Compose encaminha apenas uma lista explícita de variáveis de deploy para o container. Na inicialização, essa lista é sincronizada com o `.env` persistente do Mynha Link e o cache do Laravel é reconstruído.
+This repository's `.env` supplies the Docker deployment configuration. Compose forwards an explicit list of deployment variables to the container. At startup, these values are synchronized with Mynha Link's persistent `.env`, and Laravel's configuration cache is rebuilt.
 
-Uma chave controlada pelo deploy que deixar de ser fornecida será removida do ambiente persistente, evitando que um valor antigo continue ativo silenciosamente. A `APP_KEY` é a exceção: quando não é fornecida pelo deploy, a chave gerada e persistida pela aplicação é preservada. Opções pertencentes ao instalador ou painel, como nome da aplicação, idioma ativo, registro e página inicial, também são preservadas.
+A deployment-managed key that is no longer supplied is removed from the persistent environment, preventing stale values from remaining active. `APP_KEY` is the exception: when the deployment does not supply it, the application's generated and persisted key is preserved. Settings managed by the installer or dashboard, such as the application name, active language, registration, and homepage, are also preserved.
 
-A raiz `/htdocs` e o diretório `/htdocs/config` pertencem ao usuário `root` e não são graváveis pelo Apache. A aplicação recebe escrita somente no `.env`, no arquivo `config/advanced-config.php` e nos diretórios de dados mutáveis, como `storage`, uploads, caches e backups.
+The `/htdocs` root and `/htdocs/config` directory belong to `root` and are not writable by Apache. The application can write only to `.env`, `config/advanced-config.php`, and mutable data directories such as storage, uploads, caches, and backups.
 
-O Apache escuta somente HTTP na porta 80. O Compose base apenas documenta essa porta e não a publica no host. Em produção, o Traefik termina o TLS e encaminha as requisições para essa porta; não há certificado nem listener HTTPS dentro da imagem.
+Apache listens for HTTP on port 80. The base Compose file documents this port without publishing it to the host. In production, configure Traefik or your reverse proxy to terminate TLS and forward requests to this port. The image contains no HTTPS listener or certificate.
 
-## Build manual
+## Manual build
+
+Initialize both submodules as described under "Getting the source", then run:
 
 ```sh
 docker build --tag ghcr.io/wearemynha/mynha-link:local .
 ```
 
-O build possui três estágios:
+The build has three stages:
 
-1. compilação dos assets com Node.js;
-2. instalação das dependências PHP de produção com Composer;
-3. criação da imagem final sem `node_modules`, testes ou ferramentas de desenvolvimento.
+1. Compile frontend assets with Node.js.
+2. Install production PHP dependencies with Composer and package the Mynha themes and their license notices.
+3. Create the runtime image without `node_modules`, tests, or development tools.
 
-## Homologação automatizada
+## Automated smoke test
 
-Em Linux, WSL ou Git Bash, execute:
+On Linux, WSL, or Git Bash, run:
 
 ```sh
 sh ./autotest.sh
 ```
 
-O teste cria recursos Docker isolados e temporários, valida PostgreSQL, extensões PHP, assets, instalador, healthcheck, permissões, limpeza de configurações antigas e persistência após a recriação do container. Os recursos temporários são removidos ao final, inclusive quando ocorre uma falha.
+The script creates isolated, temporary Docker resources and checks PostgreSQL, PHP extensions, frontend assets, packaged Mynha themes and their license files, the installer, health checks, permissions, stale configuration cleanup, and persistence after container recreation. Temporary resources are removed when the script finishes, including on failure.
 
-## Licença
+## License
 
-Este projeto mantém a licença AGPL-3.0 do projeto original. Consulte [LICENSE](LICENSE).
+This project is distributed under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`). Mynha Link Docker is a fork of [LinkStack Docker](https://github.com/LinkStackOrg/linkstack-docker), maintained by Mynha. Copyright notices and third-party component licenses are preserved.
+
+See [LICENSE](LICENSE) for the full terms and [LICENSING.md](LICENSING.md) for authorship, modifications, and scope.

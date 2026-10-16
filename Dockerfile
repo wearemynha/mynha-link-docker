@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 ARG ALPINE_VERSION=3.23.5
 ARG NODE_VERSION=24-alpine
 
@@ -7,10 +5,10 @@ FROM node:${NODE_VERSION} AS frontend-builder
 
 WORKDIR /app
 
-COPY linkstack/package.json linkstack/package-lock.json ./
+COPY sources/mynha-link/package.json sources/mynha-link/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-COPY linkstack/ ./
+COPY sources/mynha-link/ ./
 RUN npm run build
 
 
@@ -50,7 +48,9 @@ COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 
 WORKDIR /app
 
-COPY linkstack/ ./
+COPY sources/mynha-link/ ./
+COPY sources/mynha-link-themes/themes/ ./themes/
+COPY sources/mynha-link-themes/LICENSE sources/mynha-link-themes/LICENSING.md ./themes/
 COPY --from=frontend-builder /app/build ./build
 
 RUN cp .env.example .env \

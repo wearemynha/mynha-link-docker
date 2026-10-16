@@ -112,6 +112,17 @@ echo "Checking runtime and installer"
 docker exec "${APP_CONTAINER}" php -m | grep -q '^pdo_pgsql$'
 docker exec "${APP_CONTAINER}" php -m | grep -q '^imagick$'
 docker exec "${APP_CONTAINER}" test -f /htdocs/build/manifest.json
+echo "Checking packaged Mynha themes and license notices"
+for theme_path in sources/mynha-link-themes/themes/*; do
+    [ -d "${theme_path}" ] || continue
+    theme_name="${theme_path##*/}"
+    for theme_file in config.php readme.md skeleton-auto.css preview.png; do
+        docker exec "${APP_CONTAINER}" test -f "/htdocs/themes/${theme_name}/${theme_file}"
+    done
+    docker exec --user apache:apache "${APP_CONTAINER}" test ! -w "/htdocs/themes/${theme_name}/config.php"
+done
+docker exec "${APP_CONTAINER}" test -f /htdocs/themes/LICENSE
+docker exec "${APP_CONTAINER}" test -f /htdocs/themes/LICENSING.md
 docker exec "${APP_CONTAINER}" test ! -d /htdocs/node_modules
 docker exec "${APP_CONTAINER}" test ! -d /htdocs/tests
 docker exec "${APP_CONTAINER}" test ! -e /htdocs/vendor/bin/phpunit

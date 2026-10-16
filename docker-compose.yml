@@ -17,8 +17,8 @@ services:
       retries: 10
       start_period: 10s
 
-  linkstack:
-    image: ${LINKSTACK_IMAGE:-ghcr.io/wearemynha/mynha-link:local}
+  mynha-link:
+    image: ${MYNHA_LINK_IMAGE:-ghcr.io/wearemynha/mynha-link:local}
     build:
       context: .
       args:
@@ -63,11 +63,11 @@ services:
       UPLOAD_MAX_FILESIZE: ${UPLOAD_MAX_FILESIZE:-8M}
       POST_MAX_SIZE: ${POST_MAX_SIZE:-16M}
     volumes:
-      - linkstack_data:/htdocs
+      - mynha_link_data:/htdocs
     expose:
       - "80"
     stop_grace_period: 30s
 
 volumes:
-  linkstack_data:
+  mynha_link_data:
   postgres_data:
