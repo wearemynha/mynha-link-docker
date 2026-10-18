@@ -2,10 +2,10 @@
 
 set -eu
 
-APP_SOURCE="${APP_SOURCE:-/opt/linkstack}"
+APP_SOURCE="${APP_SOURCE:-/opt/mynha-link}"
 APP_ROOT="${APP_ROOT:-/htdocs}"
 RUN_AS="apache:apache"
-RUNTIME_PHP_CONFIG="/etc/php83/conf.d/99-linkstack-runtime.ini"
+RUNTIME_PHP_CONFIG="/etc/php83/conf.d/99-mynha-link-runtime.ini"
 
 export SERVER_ADMIN="${SERVER_ADMIN:-admin@example.com}"
 export HTTP_SERVER_NAME="${HTTP_SERVER_NAME:-localhost}"
@@ -37,6 +37,7 @@ sync_application() {
     rsync -a --delete \
         --exclude='/.env' \
         --exclude='/.env.backup' \
+        --exclude='/.mynha-packaged-themes' \
         --exclude='/INSTALLING' \
         --exclude='/INSTALLERLOCK' \
         --exclude='/config/advanced-config.php' \
@@ -45,7 +46,8 @@ sync_application() {
         --exclude='/themes/***' \
         --exclude='/assets/img/***' \
         --exclude='/assets/favicon/icons/***' \
-        --exclude='/assets/linkstack/images/***' \
+        --exclude='/assets/linkstack/images/avatar_*' \
+        --exclude='/assets/linkstack/images/favicon_*' \
         --exclude='/assets/dashboard-themes/***' \
         "${APP_SOURCE}/" "${APP_ROOT}/"
 
@@ -56,10 +58,47 @@ sync_application() {
             "${APP_ROOT}/storage/templates/"
     fi
 
-    if [ -d "${APP_SOURCE}/themes" ]; then
-        mkdir -p "${APP_ROOT}/themes"
-        rsync -a "${APP_SOURCE}/themes/" "${APP_ROOT}/themes/"
+}
+
+sync_packaged_themes() {
+    manifest="${APP_ROOT}/.mynha-packaged-themes"
+    mkdir -p "${APP_ROOT}/themes"
+
+    # Retire only themes supplied by a previous image. Keep separately added themes.
+    if [ -f "${manifest}" ]; then
+        while IFS= read -r theme_name; do
+            case "${theme_name}" in
+                ''|*[!a-zA-Z0-9_-]*)
+                    echo "Invalid packaged theme name: ${theme_name}" >&2
+                    exit 1
+                    ;;
+            esac
+            if [ ! -d "${APP_SOURCE}/themes/${theme_name}" ]; then
+                rm -rf -- "${APP_ROOT}/themes/${theme_name}"
+            fi
+        done < "${manifest}"
     fi
+
+    : > "${manifest}.next"
+    if [ -d "${APP_SOURCE}/themes" ]; then
+        # Copy root-level license files along with the themes.
+        rsync -a "${APP_SOURCE}/themes/" "${APP_ROOT}/themes/"
+        for theme_path in "${APP_SOURCE}/themes/"*; do
+            [ -d "${theme_path}" ] || continue
+            theme_name="${theme_path##*/}"
+            case "${theme_name}" in
+                *[!a-zA-Z0-9_-]*)
+                    echo "Invalid packaged theme name: ${theme_name}" >&2
+                    exit 1
+                    ;;
+            esac
+            rsync -a --delete "${theme_path}/" "${APP_ROOT}/themes/${theme_name}/"
+            printf '%s\n' "${theme_name}" >> "${manifest}.next"
+        done
+    fi
+    mv "${manifest}.next" "${manifest}"
+    chown root:root "${manifest}"
+    chmod 0644 "${manifest}"
 }
 
 migrate_installer_markers() {
@@ -162,6 +201,7 @@ print_startup_summary() {
 
 write_runtime_php_config
 sync_application
+sync_packaged_themes
 migrate_installer_markers
 prepare_writable_paths
 cd "${APP_ROOT}"

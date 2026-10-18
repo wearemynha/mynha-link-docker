@@ -112,11 +112,11 @@ RUN apk add --no-cache \
         su-exec \
         tzdata \
     && ln -sf /usr/bin/php83 /usr/local/bin/php \
-    && mkdir -p /htdocs /opt/linkstack /run/apache2 \
-    && chown root:root /htdocs /opt/linkstack \
+    && mkdir -p /htdocs /opt/mynha-link /run/apache2 \
+    && chown root:root /htdocs /opt/mynha-link \
     && chown apache:apache /run/apache2
 
-COPY --from=backend-builder /app /opt/linkstack
+COPY --from=backend-builder /app /opt/mynha-link
 COPY configs/apache2/httpd.conf /etc/apache2/httpd.conf
 COPY configs/php/php.ini /etc/php83/conf.d/40-custom.ini
 

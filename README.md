@@ -68,7 +68,9 @@ Compose maintains two volumes:
 - `mynha_link_data`: the application's `.env`, uploads, backups, advanced configuration, and other mutable data;
 - `postgres_data`: the PostgreSQL database.
 
-Application code and packaged themes are stored in `/opt/linkstack` inside the image. At startup, they are synchronized to `/htdocs` while preserving mutable data. The themes directory is read-only for Apache; new themes must be supplied through the source and build process. Synchronization does not remove themes already present in the volume, even when they are absent from a later image.
+Application code and packaged themes are stored in `/opt/mynha-link` inside the image. At startup, they are synchronized to `/htdocs` while preserving mutable data. Uploaded site logos and favicons are preserved, while packaged branding assets are refreshed.
+
+The themes directory is read-only for Apache; new themes must be supplied through the source and build process. A root-owned `.mynha-packaged-themes` manifest records which themes came from the image. Updates remove retired packaged themes and obsolete files within packaged themes, while preserving separately added theme directories. Mynha Link Auto is the default for newly created profiles and fresh profile-homepage configuration; explicit theme choices are preserved.
 
 To build and apply an updated application image:
 
@@ -132,7 +134,7 @@ On Linux, WSL, or Git Bash, run:
 sh ./autotest.sh
 ```
 
-The script creates isolated, temporary Docker resources and checks PostgreSQL, PHP extensions, frontend assets, packaged Mynha themes and their license files, the installer, health checks, permissions, stale configuration cleanup, and persistence after container recreation. Temporary resources are removed when the script finishes, including on failure.
+The script creates isolated, temporary Docker resources and checks PostgreSQL, PHP extensions, frontend assets, packaged Mynha themes and their license files, the installer, health checks, permissions, stale configuration cleanup, and persistence after container recreation. It also checks retirement of packaged themes, preservation of custom themes and uploaded branding, and removal of obsolete packaged files. Temporary resources are removed when the script finishes, including on failure.
 
 ## License
 

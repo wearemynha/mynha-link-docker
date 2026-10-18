@@ -12,8 +12,8 @@ APP_CONTAINER="${TEST_PREFIX}-app"
 POSTGRES_CONTAINER="${TEST_PREFIX}-postgres"
 APP_VOLUME="${TEST_PREFIX}-app-data"
 POSTGRES_VOLUME="${TEST_PREFIX}-postgres-data"
-POSTGRES_DB="linkstack_test"
-POSTGRES_USER="linkstack_test"
+POSTGRES_DB="mynha_link_test"
+POSTGRES_USER="mynha_link_test"
 POSTGRES_PASSWORD="smoke-test-password"
 
 cleanup() {
@@ -123,6 +123,7 @@ for theme_path in sources/mynha-link-themes/themes/*; do
 done
 docker exec "${APP_CONTAINER}" test -f /htdocs/themes/LICENSE
 docker exec "${APP_CONTAINER}" test -f /htdocs/themes/LICENSING.md
+docker exec "${APP_CONTAINER}" test -f /etc/php83/conf.d/99-mynha-link-runtime.ini
 docker exec "${APP_CONTAINER}" test ! -d /htdocs/node_modules
 docker exec "${APP_CONTAINER}" test ! -d /htdocs/tests
 docker exec "${APP_CONTAINER}" test ! -e /htdocs/vendor/bin/phpunit
@@ -150,6 +151,8 @@ APP_KEY_BEFORE="$(docker exec "${APP_CONTAINER}" sh -c "grep '^APP_KEY=' /htdocs
 docker exec --user apache:apache "${APP_CONTAINER}" sh -c "printf '\n%s\n' 'MAIL_USERNAME=legacy-user' >> /htdocs/.env"
 docker exec --user apache:apache "${APP_CONTAINER}" sh -c "printf '%s\n' 'storage-ok' > /htdocs/storage/persistence-marker"
 docker exec "${APP_CONTAINER}" sh -c "mkdir -p /htdocs/themes/custom-smoke && printf '%s\n' 'theme-ok' > /htdocs/themes/custom-smoke/marker"
+docker exec "${APP_CONTAINER}" sh -c "mkdir -p /htdocs/themes/retired-smoke && printf '%s\n' 'retired-smoke' >> /htdocs/.mynha-packaged-themes"
+docker exec "${APP_CONTAINER}" sh -c "printf '%s\n' 'upload-ok' > /htdocs/assets/linkstack/images/avatar_smoke.png; printf '%s\n' 'icon-ok' > /htdocs/assets/linkstack/images/favicon_smoke.png; touch /htdocs/assets/linkstack/images/obsolete-branding-smoke /htdocs/themes/mynha-link-auto/obsolete-theme-file"
 docker exec --user apache:apache "${APP_CONTAINER}" sh -c "printf '%s\n' '<?php return [];' > /htdocs/config/advanced-config.php"
 docker exec --user apache:apache "${APP_CONTAINER}" test -w /htdocs/storage/persistence-marker
 docker exec --user apache:apache "${APP_CONTAINER}" test ! -w /htdocs/themes/custom-smoke/marker
@@ -176,6 +179,11 @@ docker exec "${APP_CONTAINER}" grep -q '^APP_ENV="production"$' /htdocs/.env
 docker exec "${APP_CONTAINER}" grep -q '^APP_DEBUG=false$' /htdocs/.env
 docker exec "${APP_CONTAINER}" grep -q '^storage-ok$' /htdocs/storage/persistence-marker
 docker exec "${APP_CONTAINER}" grep -q '^theme-ok$' /htdocs/themes/custom-smoke/marker
+docker exec "${APP_CONTAINER}" grep -q '^upload-ok$' /htdocs/assets/linkstack/images/avatar_smoke.png
+docker exec "${APP_CONTAINER}" grep -q '^icon-ok$' /htdocs/assets/linkstack/images/favicon_smoke.png
+docker exec "${APP_CONTAINER}" test ! -e /htdocs/assets/linkstack/images/obsolete-branding-smoke
+docker exec "${APP_CONTAINER}" test ! -e /htdocs/themes/retired-smoke
+docker exec "${APP_CONTAINER}" test ! -e /htdocs/themes/mynha-link-auto/obsolete-theme-file
 docker exec "${APP_CONTAINER}" test -f /htdocs/config/advanced-config.php
 docker exec --user apache:apache "${APP_CONTAINER}" test -w /htdocs/storage/persistence-marker
 docker exec --user apache:apache "${APP_CONTAINER}" test ! -w /htdocs/themes/custom-smoke/marker
