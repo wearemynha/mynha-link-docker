@@ -115,7 +115,7 @@ Apache listens for HTTP on port 80. The base Compose file documents this port wi
 Initialize both submodules as described under "Getting the source", then run:
 
 ```sh
-docker build --tag ghcr.io/wearemynha/mynha-link:local .
+docker build --tag <TAG> .
 ```
 
 The build has three stages:

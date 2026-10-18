@@ -7,8 +7,8 @@ The security of this application is left to the user. This application is distri
 
 ## Reporting a Vulnerability
 
-If you believe you have found a security vulnerability in this project, please contact the developer at [`linkstackorg@gmail.com`](mailto:linkstackorg@gmail.com). Include as much detail as possible about the potential issue, including the version of the project you are using. Thank you for helping to keep LinkStack secure!
+If you believe you have found a security vulnerability in this project, please contact the developer at [`oi@mynha.com.br`](mailto:oi@mynha.com.br). Include as much detail as possible about the potential issue, including the version of the project you are using. Thank you for helping to keep Mynha Link secure!
 
 <br>
 
-*For any questions regarding this please contact: [`linkstackorg@gmail.com`](mailto:linkstackorg@gmail.com)*
+*For any questions regarding this please contact: [`oi@mynha.com.br`](mailto:oi@mynha.com.br)*
